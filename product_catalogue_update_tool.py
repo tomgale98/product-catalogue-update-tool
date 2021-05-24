@@ -1,5 +1,9 @@
 """Product Catalogue Updater
 
+Author: Thomas Gale - thomas.gale@vodafone.com
+
+***Version 2 - 2021-03-03***
+
 This script requests end-of-life data from the Cisco EoX API and updates the 'Product Catalogue.xlsx' spreadsheet
 with the relevant dates.
 
@@ -13,7 +17,7 @@ The script runs as follows:
     *For each product ID, the relevant url is created and a GET request sent to the API.
     *If an error is returned, the error message is printed and the process continues to the next Product ID.
     *The response is saved as a dict, from which the 'EOXRecord' is extracted.
-    *The two relevant dates are written to the correct cells in the workbook, and a timestamp is saved.
+    *The relevant dates are written to the correct cells in the workbook, and a timestamp is saved.
     *If a response is not present for one of the dates, the value in the spreadsheet is not altered.
     *A separate text report for the hardware and software updates is saved, and the updated spreadsheet is saved.
 
@@ -228,7 +232,7 @@ def find_column(sheet, title):
     # if a match is not found, return an error and stop the program
     print('Column \'{}\' not found in \'{}\''.format(title, sheet))
     input('Press enter to continue')
-    sys.exit()
+    return False
 
 
 def find_rows(column, product_id):
@@ -254,6 +258,7 @@ def hw_process(current_sheet):
     # 'PartNumber' column
     ldos_column_number = find_column(current_sheet, 'HWEndofSupportDate')
     eol_column_number = find_column(current_sheet, 'HWEndofLifeDate')
+    eovs_column_number = find_column(current_sheet, 'HWEndofSecurityVulSupportDate')
 
     # iterate through the list of cells in column 'PartNumber'
     count = 0
@@ -297,32 +302,56 @@ def hw_process(current_sheet):
             if error_present is True:
                 continue
 
-            # extract required information from the EOX section
-            ldos_date = format_date(eox_value('LastDateOfSupport', eox_data))
-            eol_date = format_date(eox_value('EndOfSWMaintenanceReleases', eox_data))
+            # extract required information from the EOX section if column found in spreadsheet
+            if ldos_column_number:
+                ldos_date = format_date(eox_value('LastDateOfSupport', eox_data))
+            else:
+                ldos_date = False
+
+            if eol_column_number:
+                eol_date = format_date(eox_value('EndOfSWMaintenanceReleases', eox_data))
+            else:
+                eol_date = False
+
+            if eovs_column_number:
+                eovs_date = format_date(eox_value('EndOfSecurityVulSupportDate', eox_data))
+            else:
+                eovs_date = False
+
+
 
             # update HWEndofSupportDate cell if API value is not blank
             if ldos_date:
                 current_sheet.cell(row=part_number.row, column=ldos_column_number).value = ldos_date
+                ldos_updated_status = True
             else:
-                if not ldos_date:
-                    ldos_date = 'Not available'
+               ldos_updated_status = False
+               ldos_date = 'Not available'
 
             # update HWEndofLifeDate cell if API value is not blank
             if eol_date:
                 current_sheet.cell(row=part_number.row, column=eol_column_number).value = eol_date
+                eol_updated_status = True
             else:
-                if not eol_date:
-                    eol_date = False
+                eol_updated_status = False
+                eol_date = 'Not available'
 
-            # timestamp the 'Updated' column
-            if not (ldos_date == False and eol_date == False):
+            # update HWEndOfSecurityVulSupportDate cell if API value is not blank
+            if eovs_date:
+                current_sheet.cell(row=part_number.row, column=eovs_column_number).value = eovs_date
+                eovs_updated_status = True
+            else:
+                eovs_updated_status = False
+                eovs_date = 'Not available'
+
+            # timestamp the 'Updated' column if any of the date were updated
+            if ldos_updated_status == True or eol_updated_status == True or eovs_updated_status == True:
                 date_column_number = find_column(current_sheet, 'Updated')
                 timestamp = datetime.now()
                 current_sheet.cell(row=part_number.row, column=date_column_number).value = timestamp
 
             # create record of product and updated info
-            update = (product_id, ldos_date, eol_date)
+            update = (product_id, ldos_date, eol_date, eovs_date)
 
             # add this product to list of updated products
             updated_products.append(update)
@@ -393,18 +422,22 @@ def sw_process(current_sheet):
             if error_present is True:
                 continue
 
-            # extract required information from the EOX section
-            ldos_date = format_date(eox_value('LastDateOfSupport', eox))
+             # extract required information from the EOX section if column found in spreadsheet
+            if ldos_column_number:
+                ldos_date = format_date(eox_value('LastDateOfSupport', eox))
+            else:
+                ldos_date = False
 
             # update SWEndofSupportDate cell if API value is not blank
             if ldos_date:
                 current_sheet.cell(row=software.row, column=ldos_column_number).value = ldos_date
+                ldos_updated_status = True
             else:
-                if not ldos_date:
-                    ldos_date = False
+                ldos_updated_status = False
+                ldos_date = 'Not available'
 
             # timestamp the 'Updated' column
-            if not ldos_date == False:
+            if ldos_updated_status:
                 date_column_number = find_column(current_sheet, 'Updated')
                 date_now = datetime.now()
                 current_sheet.cell(row=software.row, column=date_column_number).value = date_now
