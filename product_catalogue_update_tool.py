@@ -2,7 +2,13 @@
 
 Author: Thomas Gale - thomas.gale@vodafone.com
 
-***Version 2 - 2021-03-03***
+***Version 3 - 2021-28-04***
+
+Changelog:
+    *main function added
+    *columns titles are now printed in the HW and SW reports
+    *the HW and SW column titles have been made global variables for ease of changing them
+    *added number formatting to format each cell as a date
 
 This script requests end-of-life data from the Cisco EoX API and updates the 'Product Catalogue.xlsx' spreadsheet
 with the relevant dates.
@@ -19,9 +25,9 @@ The script runs as follows:
     *The response is saved as a dict, from which the 'EOXRecord' is extracted.
     *The relevant dates are written to the correct cells in the workbook, and a timestamp is saved.
     *If a response is not present for one of the dates, the value in the spreadsheet is not altered.
+    *This process is then repeated for the software sheet of the Product Catalogue.
     *A separate text report for the hardware and software updates is saved, and the updated spreadsheet is saved.
 
-This process is then repeated for the software sheet of the Product Catalogue.
 
 The Cisco EoX API provides access to Cisco End of Life product data and is the source of information used to update
 the Product Catalogue in this program. Calls to the API require different forms depending on what data is being
@@ -52,6 +58,7 @@ The script requires that the following modules are installed within the active P
     *openpyxl
 """
 
+
 import json
 import sys
 import datetime
@@ -79,10 +86,16 @@ excel_name = 'Product Catalogue.xlsx'
 hw_sheet_name = 'HW Product Catalogue'
 sw_sheet_name = 'SW Product Catalogue'
 
+# column names
+hw_ldos_name = 'HWEndofSupportDate'
+hw_eol_name = 'HWEndofLifeDate'
+hw_eovs_name = 'HWEndofVulnDate'
+sw_ldos_name = 'SWEndofSupportDate'
+
 scan_limit = 5000  # number of products to update per sheet
 
 
-def create_report(sheet_name, scanned_count, updated_count, list_of_updates, name):
+def create_report(sheet_name, scanned_count, column_names, updated_count, list_of_updates, name):
     """save a report on the results of the script execution to a text file"""
     file_name = name + '.txt'
     try:
@@ -93,6 +106,7 @@ def create_report(sheet_name, scanned_count, updated_count, list_of_updates, nam
     else:
         file.write("Products scanned on {}: {}\n".format(sheet_name, scanned_count))
         file.write("Products updated: {}\n\n".format(updated_count))
+        file.write('{}\n'.format(column_names))
         for product in list_of_updates:
             file.write('{}\n'.format(product))
 
@@ -156,6 +170,8 @@ def check_token(name):
         else:
             print('Using existing access token.')
 
+        file.close()
+
     return token
 
 
@@ -197,7 +213,7 @@ def eox_value(entry, list):
 
 
 def format_date(date_str):
-    """takes a string, converts to a date object, reformats the date, then returns the new format date as a string"""
+    """takes a string, converts to a date object, reformats the date, then returns formatted date as a string"""
     try:
         date_object = datetime.strptime(date_str, '%Y-%m-%d')
     except ValueError:
@@ -229,7 +245,7 @@ def find_column(sheet, title):
                 match = cell.col_idx
                 return match
 
-    # if a match is not found, return an error and stop the program
+    # if a match is not found, let the user know
     print('Column \'{}\' not found in \'{}\''.format(title, sheet))
     input('Press enter to continue')
     return False
@@ -244,7 +260,7 @@ def find_rows(column, product_id):
     return matches
 
 
-def hw_process(current_sheet):
+def hw_process(current_sheet, token):
     """This function executes the API call and storage of the retrieved data for the Hardware.
 
      The API call is made and the end-of-life data extracted from the response. The relevant cells in the workbook are
@@ -253,12 +269,13 @@ def hw_process(current_sheet):
 
     print('Updating {}'.format(current_sheet))
     updated_products = []  # list to record the updated product ID's
+    column_names = ('Product ID', 'End of Support', 'End of Life', 'End of Security Vul Support')
     part_column_number = find_column(current_sheet, 'PartNumber')  # get number of column titled 'PartNumber'
     column_values = list(current_sheet.columns)[part_column_number - 1]  # get list of cells in the
     # 'PartNumber' column
-    ldos_column_number = find_column(current_sheet, 'HWEndofSupportDate')
-    eol_column_number = find_column(current_sheet, 'HWEndofLifeDate')
-    eovs_column_number = find_column(current_sheet, 'HWEndofSecurityVulSupportDate')
+    ldos_column_number = find_column(current_sheet, hw_ldos_name)
+    eol_column_number = find_column(current_sheet, hw_eol_name)
+    eovs_column_number = find_column(current_sheet, hw_eovs_name)
 
     # iterate through the list of cells in column 'PartNumber'
     count = 0
@@ -318,10 +335,9 @@ def hw_process(current_sheet):
             else:
                 eovs_date = False
 
-
-
             # update HWEndofSupportDate cell if API value is not blank
             if ldos_date:
+                current_sheet.cell(row=part_number.row, column=ldos_column_number).number_format = 'dd/mm/yyyy'
                 current_sheet.cell(row=part_number.row, column=ldos_column_number).value = ldos_date
                 ldos_updated_status = True
             else:
@@ -330,14 +346,16 @@ def hw_process(current_sheet):
 
             # update HWEndofLifeDate cell if API value is not blank
             if eol_date:
+                current_sheet.cell(row=part_number.row, column=ldos_column_number).number_format = 'dd/mm/yyyy'
                 current_sheet.cell(row=part_number.row, column=eol_column_number).value = eol_date
                 eol_updated_status = True
             else:
                 eol_updated_status = False
                 eol_date = 'Not available'
 
-            # update HWEndOfSecurityVulSupportDate cell if API value is not blank
+            # update HWEndofVulnDate cell if API value is not blank
             if eovs_date:
+                current_sheet.cell(row=part_number.row, column=ldos_column_number).number_format = 'dd/mm/yyyy'
                 current_sheet.cell(row=part_number.row, column=eovs_column_number).value = eovs_date
                 eovs_updated_status = True
             else:
@@ -358,13 +376,13 @@ def hw_process(current_sheet):
 
     print('HW Products updated: {}'.format(len(updated_products)))
     # create the report of results
-    create_report(current_sheet, count, len(updated_products),
+    create_report(current_sheet, count, column_names, len(updated_products),
                   updated_products, 'HW Report {}'.format(date.today()))
 
     return
 
 
-def sw_process(current_sheet):
+def sw_process(current_sheet, token):
     """This function executes the API call and storage of the retrieved data for the Software.
 
     The API call is made and the end-of-life data extracted from the response. The relevant cells in the workbook are
@@ -373,11 +391,10 @@ def sw_process(current_sheet):
 
     print('Updating {}'.format(current_sheet))
     updated_products = []  # list to record the updated product ID's
+    column_names = ('Product ID', 'End of Support', 'End of Life', 'End of Security Vul Support')
     software_column_number = find_column(current_sheet, 'oslevel')  # get number of column titled 'oslevel'
-    column_values = list(current_sheet.columns)[
-        software_column_number - 1]  # get list of cells in the 'oslevel' column
-    ldos_column_number = find_column(current_sheet,
-                                     'SWEndofSupportDate')  # get number of column titled 'SWEndOfSupportDate'
+    column_values = list(current_sheet.columns)[software_column_number - 1]  # get list of cells in the 'oslevel' column
+    ldos_column_number = find_column(current_sheet, sw_ldos_name)  # get number of column titled 'SWEndOfSupportDate'
 
     # iterate through the list of cells in column 'oslevel'
     count = 0
@@ -450,44 +467,47 @@ def sw_process(current_sheet):
 
     print('SW Products updated: {}'.format(len(updated_products)))
     # create the report of results
-    create_report(current_sheet, count, len(updated_products),
+    create_report(current_sheet, count, column_names, len(updated_products),
                   updated_products, 'SW Report {}'.format(date.today()))
 
     return
 
 
-begin = time.time()
+def main():
 
-token = check_token(token_file_name)  # create the access token
-wb = open_workbook(excel_name)
+    begin = time.time()
+    token = check_token(token_file_name)  # create the access token
+    wb = open_workbook(excel_name)
 
-for sheet in wb.sheetnames:
-    current_sheet = wb[sheet]
+    for sheet in wb.sheetnames:
+        current_sheet = wb[sheet]
 
-    # find the sheet named 'HW Product Catalogue'
-    if sheet == hw_sheet_name:
-        hw_process(current_sheet)
+        # find the sheet named 'HW Product Catalogue'
+        if sheet == hw_sheet_name:
+            hw_process(current_sheet, token)
 
-    # find the sheet named 'SW Product Catalogue'
-    if sheet == sw_sheet_name:
-        sw_process(current_sheet)
+        # find the sheet named 'SW Product Catalogue'
+        if sheet == sw_sheet_name:
+            sw_process(current_sheet, token)
 
+    save_as = 'Product Catalogue Updated {}.xlsx'.format(date.today())  # put current date in the updated file name
 
-save_as = 'Product Catalogue Updated {}.xlsx'.format(date.today())  # put current date in the updated file name
-try:
-    wb.save(save_as)
-    print('Update complete, saved file \'{}\''.format(save_as))
-except PermissionError as e:
-    print('Saving file {} : {}\n'
-          'File of same name may already be open.'.format(save_as, e.strerror))
+    try:
+        wb.save(save_as)
+        print('Update complete, saved file \'{}\''.format(save_as))
+    except PermissionError as e:
+        print('Saving file {} : {}\n'
+              'File of same name may already be open.'.format(save_as, e.strerror))
+        input('Press enter to continue')
+
+    end = time.time()
+    runtime = end - begin
+    runtime_mins = runtime / 60
+
+    print('Runtime = {} minute(s)'.format(round(runtime_mins)))
     input('Press enter to continue')
 
-end = time.time()
-runtime = end - begin
-runtime_mins = runtime/60
 
-print('Runtime = {} minute(s)'.format(round(runtime_mins)))
-input('Press enter to continue')
-
-
+if __name__ == "__main__":
+    main()
 
